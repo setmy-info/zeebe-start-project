@@ -12,6 +12,7 @@
         </root>
         <logger name="info.setmy.microservice" level="DEBUG"/>
         <logger name="org.springframework.web" level="DEBUG"/>
+        <logger name="io.zeebe.client" level="DEBUG"/>
     </springProfile>
 
     <springProfile name="test">

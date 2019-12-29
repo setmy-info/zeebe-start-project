@@ -1,9 +1,17 @@
 package info.setmy.zeebe.services;
 
-import info.setmy.zeebe.job.OrderProcessJobHanlder;
+import info.setmy.zeebe.config.ZeebeProperties;
+import info.setmy.zeebe.handlers.CollectMoneyHanlder;
+import info.setmy.zeebe.handlers.FetchItemsHanlder;
+import info.setmy.zeebe.handlers.OrderPlacedHanlder;
+import info.setmy.zeebe.handlers.ShipParcelHanlder;
+import info.setmy.zeebe.handlers.ZeebeHandler;
 import io.zeebe.client.ZeebeClient;
+import io.zeebe.client.ZeebeClientBuilder;
 import io.zeebe.client.api.response.DeploymentEvent;
+import io.zeebe.client.api.response.Workflow;
 import io.zeebe.client.api.response.WorkflowInstanceEvent;
+import io.zeebe.client.api.worker.JobHandler;
 import io.zeebe.client.api.worker.JobWorker;
 import java.time.Duration;
 import java.util.Scanner;
@@ -16,67 +24,111 @@ public class ZeebeService {
 
     private final Logger log = LogManager.getLogger(this.getClass());
 
-    private final ZeebeClient zeebeClient;
+    private final ZeebeProperties zeebeProperties;
 
-    private final OrderProcessJobHanlder orderProcessJobHanlder;
+    private ZeebeClient client;
 
-    public ZeebeService(final ZeebeClient zeebeClient, final OrderProcessJobHanlder orderProcessJobHanlder) {
-        this.zeebeClient = zeebeClient;
-        this.orderProcessJobHanlder = orderProcessJobHanlder;
+    private final CollectMoneyHanlder collectMoneyHanlder;
+    private final FetchItemsHanlder fetchItemsHanlder;
+    private final ShipParcelHanlder shipParcelHanlder;
+    private final OrderPlacedHanlder orderPlacedHanlder;
+    private Workflow workFlow;
+
+    public ZeebeService(
+            final OrderPlacedHanlder orderPlacedHanlder,
+            final CollectMoneyHanlder collectMoneyHanlder,
+            final FetchItemsHanlder fetchItemsHanlder,
+            final ShipParcelHanlder shipParcelHanlder,
+            final ZeebeProperties zeebeProperties
+    ) {
+        this.orderPlacedHanlder = orderPlacedHanlder;
+        this.collectMoneyHanlder = collectMoneyHanlder;
+        this.fetchItemsHanlder = fetchItemsHanlder;
+        this.shipParcelHanlder = shipParcelHanlder;
+        this.zeebeProperties = zeebeProperties;
     }
 
-    public void init() {
-        registerWorkflow();
+    public void execute() {
+        initClient();
+        //registerWorkflow();
         //createWorkflowInstance();
+        handleJobs();
+        close();
     }
 
-    public void handleJobs() {
-        log.info("Opening job worker.");
-        final JobWorker workerRegistration = zeebeClient
+    private void initClient() {
+        final ZeebeClientBuilder builder = ZeebeClient.newClientBuilder().brokerContactPoint(zeebeProperties.getHost() + ":" + zeebeProperties.getPort()).usePlaintext();
+        client = builder.build();
+        log.info("Connected to: {}", zeebeProperties);
+    }
+
+    private void registerWorkflow() {
+        final DeploymentEvent deployment = client.newDeployCommand()
+                .addResourceFromClasspath("order-process.bpmn")
+                .send()
+                .join();
+        workFlow = deployment.getWorkflows().get(0);
+        log.info(
+                "Workflow deployed. resourceName: {}, version: {}, bpmnProcessId: {}, workflowKey: {}",
+                workFlow.getResourceName(),
+                workFlow.getVersion(),
+                workFlow.getBpmnProcessId(),
+                workFlow.getWorkflowKey()
+        );
+    }
+
+    private void createWorkflowInstance() {
+        final WorkflowInstanceEvent workflowInstance = client.newCreateInstanceCommand()
+                .bpmnProcessId(workFlow.getBpmnProcessId())
+                .latestVersion()
+                .send()
+                .join();
+        log.info("Workflow instance created. workflowInstanceKey: {}, bpmnProcessId: {}, version: {}, workflowKey: {}",
+                workflowInstance.getWorkflowInstanceKey(),
+                workflowInstance.getBpmnProcessId(),
+                workflowInstance.getVersion(),
+                workflowInstance.getWorkflowKey()
+        );
+    }
+
+    private void handleJobs() {
+        final JobWorker orderPlacedJobWorker = handle(orderPlacedHanlder);
+        final JobWorker collectMoneyJobWorker = handle(collectMoneyHanlder);
+        final JobWorker fetchItemsJobWorker = handle(fetchItemsHanlder);
+        final JobWorker shipParcelJobWorker = handle(shipParcelHanlder);
+        log.info("Job worker opened and receiving jobs.");
+        waitUntilSystemInput();
+        orderPlacedJobWorker.close();
+        collectMoneyJobWorker.close();
+        fetchItemsJobWorker.close();
+        shipParcelJobWorker.close();
+    }
+
+    private JobWorker handle(final JobHandler handler) {
+        final String taskName = ((ZeebeHandler) handler).getTaskName();
+        log.info("Opening job worker: {}", taskName);
+        final JobWorker jobWorker = client
                 .newWorker()
-                .jobType("collect-money")
-                .handler(orderProcessJobHanlder)
+                .jobType(taskName)
+                .handler(handler)
                 .timeout(Duration.ofSeconds(10))
                 .open();
-        log.info("Job worker opened and receiving jobs.");
-        waitUntilSystemInput(workerRegistration);
+        return jobWorker;
     }
 
-    private void waitUntilSystemInput(final JobWorker workerRegistration) {
+    private void waitUntilSystemInput() {
         try (Scanner scanner = new Scanner(System.in)) {
             while (scanner.hasNextLine()) {
                 final String nextLine = scanner.nextLine();
                 if (nextLine.contains("exit")) {
-                    workerRegistration.close();
                     return;
-                } else if (nextLine.contains("order")) {
-                    createWorkflowInstance();
                 }
             }
         }
     }
 
-    public void close() {
-        zeebeClient.close();
+    private void close() {
+        client.close();
         log.info("Closed!");
-    }
-
-    private void registerWorkflow() {
-        final DeploymentEvent deployment = zeebeClient.newDeployCommand()
-                .addResourceFromClasspath("order-process.bpmn")
-                .send()
-                .join();
-        final int version = deployment.getWorkflows().get(0).getVersion();
-        log.info("Workflow deployed. Version: {}", version);
-    }
-
-    private void createWorkflowInstance() {
-        final WorkflowInstanceEvent wfInstance = zeebeClient.newCreateInstanceCommand()
-                .bpmnProcessId("order-process")
-                .latestVersion()
-                .send()
-                .join();
-        final long workflowInstanceKey = wfInstance.getWorkflowInstanceKey();
-        log.info("Workflow instance created. Key: {}", workflowInstanceKey);
     }
 }

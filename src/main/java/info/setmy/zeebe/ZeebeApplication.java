@@ -27,8 +27,6 @@ public class ZeebeApplication implements CommandLineRunner {
 
     @Override
     public void run(final String... args) throws Exception {
-        zeebeService.init();
-        zeebeService.handleJobs();
-        zeebeService.close();
+        zeebeService.execute();
     }
 }

@@ -1,4 +1,4 @@
-package info.setmy.zeebe.job;
+package info.setmy.zeebe.handlers;
 
 import info.setmy.zeebe.model.Order;
 import io.zeebe.client.api.response.ActivatedJob;
@@ -8,10 +8,15 @@ import javax.inject.Named;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-@Named("orderProcessJobHanlder")
-public class OrderProcessJobHanlder implements JobHandler {
+@Named("orderPlacedHanlder")
+public class OrderPlacedHanlder implements ZeebeHandler, JobHandler {
 
     private final Logger log = LogManager.getLogger(this.getClass());
+
+    @Override
+    public String getTaskName() {
+        return "order-placed";
+    }
 
     @Override
     public void handle(final JobClient jobCloent, final ActivatedJob job) throws Exception {
