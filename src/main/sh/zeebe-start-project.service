@@ -1,0 +1,14 @@
+[Unit]
+Description=Zeebe spring boot project service
+After=syslog.target
+
+[Service]
+Type=simple
+User=microservice
+Group=microservice
+ExecStart=/opt/has/bin/zeebe-start-project start
+ExecStop=/opt/has/bin/zeebe-start-project stop
+ExecReload=/opt/has/bin/zeebe-start-project reload
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    https://dxr.mozilla.org/mozilla-central/source/mobile/android/app/findbugs-exclude.xml
+    http://findbugs.sourceforge.net/manual/filter.html
+-->
+<FindBugsFilter>
+    <!--Match>
+        <Bug pattern="DM_DEFAULT_ENCODING" />
+    </Match-->
+</FindBugsFilter>
